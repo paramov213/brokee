@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>BROKE Messenger</title>
+    <script src="/socket.io/socket.io.js"></script>
+    <style>
+        :root {
+            --bg: #0f0f0f;
+            --accent: #0088cc;
+            --glass: rgba(255, 255, 255, 0.1);
+        }
+        body { font-family: 'Segoe UI', sans-serif; background: var(--bg); color: white; margin: 0; overflow: hidden; }
+        
+        /* Анимации */
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+        .screen { display: none; height: 100vh; animation: fadeIn 0.3s ease; }
+        .active { display: flex; flex-direction: column; }
+
+        /* Авторизация */
+        .auth-box { margin: auto; padding: 30px; background: var(--glass); border-radius: 20px; backdrop-filter: blur(10px); width: 300px; }
+        input { width: 100%; padding: 10px; margin: 10px 0; border-radius: 8px; border: none; background: #222; color: white; box-sizing: border-box; }
+        button { width: 100%; padding: 12px; border-radius: 8px; border: none; background: var(--accent); color: white; cursor: pointer; font-weight: bold; }
+
+        /* Главный экран */
+        .main-container { display: flex; height: 100%; }
+        .sidebar { width: 300px; border-right: 1px solid #333; padding: 20px; }
+        .content { flex: 1; padding: 20px; position: relative; }
+
+        /* NFT Сетка */
+        .nft-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 15px; }
+        .nft-item { width: 50px; height: 50px; border-radius: 8px; border: 1px solid gold; box-shadow: 0 0 10px rgba(255,215,0,0.3); }
+
+        .avatar { width: 80px; height: 80px; border-radius: 50%; background: #444; margin-bottom: 10px; object-fit: cover; }
+        .badge { background: gold; color: black; padding: 2px 8px; border-radius: 10px; font-size: 12px; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+    <div id="auth-screen" class="screen active">
+        <div class="auth-box">
+            <h2 style="text-align: center;">BROKE</h2>
+            <input type="text" id="login-input" placeholder="Username">
+            <input type="password" id="pass-input" placeholder="Password">
+            <button onclick="login()">Войти</button>
+        </div>
+    </div>
+
+    <div id="main-screen" class="screen">
+        <div class="main-container">
+            <div class="sidebar">
+                <h3>Меню</h3>
+                <button onclick="showSection('profile')">👤 Мой профиль</button><br><br>
+                <button onclick="showSection('search')">🔍 Найти пользователя</button><br><br>
+                <button onclick="showSection('create-chan')">📢 Создать канал</button><br><br>
+                <div id="admin-panel" style="display:none; margin-top: 20px; border-top: 1px solid #444; padding-top: 10px;">
+                    <p style="color: gold;">⭐ Админ-панель</p>
+                    <input id="adm-target" placeholder="Кому (username)">
+                    <button onclick="adminAction('set_id')">Выдать ID</button>
+                    <button onclick="adminAction('gift')">Выдать NFT</button>
+                </div>
+            </div>
+
+            <div class="content" id="content-area">
+                <div id="profile-view">
+                    <img id="my-avatar" class="avatar" src="https://via.placeholder.com/80">
+                    <h2 id="my-name">Никнейм</h2>
+                    <p id="my-user">@username</p>
+                    <div id="my-id-box"></div>
+                    <p id="my-desc">Описание профиля...</p>
+                    <h4>Мои NFT-подарки:</h4>
+                    <div id="my-nfts" class="nft-grid"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const socket = io();
+        let currentUser = null;
+
+        // Проверка сессии
+        if(localStorage.getItem('broke_user')) {
+            autoLogin(JSON.parse(localStorage.getItem('broke_user')));
+        }
+
+        function login() {
+            const user = {
+                username: document.getElementById('login-input').value,
+                nickname: document.getElementById('login-input').value,
+                desc: "Новый пользователь BROKE",
+                pass: document.getElementById('pass-input').value
+            };
+            
+            if(user.username === 'admin' && user.pass === '565811') {
+                document.getElementById('admin-panel').style.display = 'block';
+            }
+
+            localStorage.setItem('broke_user', JSON.stringify(user));
+            socket.emit('auth', user);
+        }
+
+        function autoLogin(data) {
+            socket.emit('auth', data);
+        }
+
+        socket.on('auth_success', (user) => {
+            currentUser = user;
+            document.getElementById('auth-screen').classList.remove('active');
+            document.getElementById('main-screen').classList.add('active');
+            updateProfileUI();
+        });
+
+        function updateProfileUI() {
+            document.getElementById('my-name').innerText = currentUser.nickname;
+            document.getElementById('my-user').innerText = '@' + currentUser.username;
+            if(currentUser.id) {
+                document.getElementById('my-id-box').innerHTML = `<span class="badge">ID: ${currentUser.id}</span>`;
+            }
+            
+            const nftContainer = document.getElementById('my-nfts');
+            nftContainer.innerHTML = '';
+            currentUser.gifts.forEach(src => {
+                const img = document.createElement('img');
+                img.src = src;
+                img.className = 'nft-item';
+                nftContainer.appendChild(img);
+            });
+        }
+
+        function adminAction(type) {
+            const target = document.getElementById('adm-target').value;
+            if(type === 'set_id') {
+                const val = prompt("Введите ID:");
+                socket.emit('admin_action', { type: 'set_id', target, value: val });
+            }
+            if(type === 'gift') {
+                const nftUrl = "https://cdn-icons-png.flaticon.com/512/6298/6298517.png"; // Имитация NFT
+                socket.emit('send_nft', { to: target, nftSrc: nftUrl });
+            }
+        }
+
+        socket.on('update_profile', (data) => {
+            if(currentUser && data.username === currentUser.username) {
+                currentUser = data.data;
+                updateProfileUI();
+            }
+        });
+    </script>
+</body>
+</html>
